@@ -1,36 +1,25 @@
-import pg from "pg";
-import express from "express";
-import cors from "cors";
+import "dotenv/config";
 
 import app from "./app.js";
-import StudentRoute from "./routes/student.route.js";
+import { sequelize } from "./database/db.js";
 
-const { Client } = pg;
+/*
+import "./models/users.model.js";
+import "./models/roles.model.js";
+import "./models/goals.model.js";
+import "./models/donations.model.js";
+*/
 
-app.listen(3000, () => {
-  console.log("Server is running on port 3000");
-});
+const main = async () => {
+  const PORT = process.env.SERVER_PORT || 4000;
+  try {
+    //await sequelize.sync({ force: false });
+    app.listen(PORT, () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Unable to start the server:", error);
+  }
+};
 
-//routes
-
-/* const app = express(); */
-app.use(express.json());
-
-//middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
-app.use("/api/students", StudentRoute);
-
-const con = new Client({
-  host: "localhost",
-  user: "postgres",
-  port: 5432,
-  database: "hasbara-donations",
-  password: "1995",
-});
-
-con.connect().then(() => {
-  console.log("connected");
-});
+main();
