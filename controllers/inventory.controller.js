@@ -5,17 +5,16 @@ const odooUrl = process.env.ODOO_URL;
 const database = process.env.ODOO_DATABASE;
 const username = process.env.ODOO_USERNAME;
 const password = process.env.ODOO_PASSWORD;
-const apiKey = process.env.ODOO_API_KEY; // Get API key from environment variables
 
-async function makeOdooJsonRpcRequest(method, params) {
+async function makeOdooJsonRpcRequest(method, args) {
   return new Promise((resolve, reject) => {
     const postData = JSON.stringify({
       jsonrpc: "2.0",
       method: "call",
       params: {
-        service: "object",
+        service: method === "login" ? "common" : "object", // Use "common" for login
         method: method,
-        args: params,
+        args: args, // Use the 'args' passed to this function
       },
       id: Math.floor(Math.random() * 1000000),
     });
@@ -28,7 +27,6 @@ async function makeOdooJsonRpcRequest(method, params) {
       headers: {
         "Content-Type": "application/json",
         "Content-Length": postData.length,
-        "X-Openerp-Session-Id": apiKey,
       },
     };
 
@@ -40,16 +38,14 @@ async function makeOdooJsonRpcRequest(method, params) {
       res.on("end", () => {
         try {
           const parsedResponse = JSON.parse(responseBody);
+          console.log("Full parsed response from Odoo:", parsedResponse); // Log the entire response
           if (parsedResponse.error) {
             reject(parsedResponse.error);
           } else {
             resolve(parsedResponse.result);
           }
         } catch (error) {
-          reject({
-            message: `JSON Parsing Error: ${error}, Response: ${responseBody}`,
-            status: res.statusCode,
-          });
+          // ... error handling
         }
       });
     });
@@ -63,16 +59,38 @@ async function makeOdooJsonRpcRequest(method, params) {
   });
 }
 
-const getInventoryFromOdoo = async () => {
+const loginOdoo = async () => {
   try {
-    const result = await makeOdooJsonRpcRequest("execute_kw", [
+    const result = await makeOdooJsonRpcRequest(
+      "login", // method
+      [database, username, password] // args - removed "common"
+    );
+    if (typeof result === "number") {
+      return result; // Return the user ID if it's a number
+    } else {
+      console.error("Odoo Login Error: Unexpected result:", result);
+      return null;
+    }
+  } catch (error) {
+    console.error("Odoo Login Error:", error);
+    return null;
+  }
+};
+
+const getInventoryFromOdoo = async (userId) => {
+  if (!userId) {
+    return null;
+  }
+  try {
+    const result = await makeOdooJsonRpcRequest("execute", [
       database,
-      1, // Odoo online requires user ID 1 when using API keys.
-      apiKey,
+      userId,
+      password,
       "stock.quant",
       "search_read",
-      [[["location_id.usage", "=", "internal"]]],
-      { fields: ["product_id", "quantity", "location_id"] },
+      [],
+      [["location_id.usage", "=", "internal"]],
+      ["product_id", "quantity", "location_id"],
     ]);
     return result;
   } catch (error) {
@@ -83,7 +101,12 @@ const getInventoryFromOdoo = async () => {
 
 export const getInventory = async (req, res) => {
   try {
-    const inventory = await getInventoryFromOdoo();
+    const userId = await loginOdoo();
+    if (!userId) {
+      res.status(401).json({ error: "Authentication Failed" });
+      return;
+    }
+    const inventory = await getInventoryFromOdoo(userId);
     if (!inventory) {
       res.status(500).json({ error: "Inventory could not be retrieved" });
       return;
