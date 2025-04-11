@@ -1,5 +1,6 @@
 import "dotenv/config";
 import https from "https";
+import { connectToDatabase } from "../database/db-pgonly.js";
 
 const odooUrl = process.env.ODOO_URL;
 const database = process.env.ODOO_DATABASE;
@@ -38,7 +39,7 @@ async function makeOdooJsonRpcRequest(method, args) {
       res.on("end", () => {
         try {
           const parsedResponse = JSON.parse(responseBody);
-          console.log("Full parsed response from Odoo:", parsedResponse); // Log the entire response
+          //console.log("Full parsed response from Odoo:", parsedResponse); // Log the entire response
           if (parsedResponse.error) {
             reject(parsedResponse.error);
           } else {
@@ -61,6 +62,7 @@ async function makeOdooJsonRpcRequest(method, args) {
 
 const loginOdoo = async () => {
   try {
+    console.log("Connecting to Odoo");
     const result = await makeOdooJsonRpcRequest(
       "login", // method
       [database, username, password] // args - removed "common"
@@ -77,27 +79,119 @@ const loginOdoo = async () => {
   }
 };
 
-const getInventoryFromOdoo = async (userId) => {
+const getInventoryFromOdoo = async (userId, startDate, endDate) => {
   if (!userId) {
     return null;
   }
   try {
+    const domain = [
+      ["create_date", ">=", startDate],
+      ["create_date", "<=", endDate],
+    ];
+
     const result = await makeOdooJsonRpcRequest("execute", [
       database,
       userId,
       password,
-      "stock.quant",
+      "product.template",
       "search_read",
+      domain,
       [],
-      [["location_id.usage", "=", "internal"]],
-      ["product_id", "quantity", "location_id"],
     ]);
+    //console.log("result", result);
     return result;
   } catch (error) {
     console.error("Odoo Inventory Error:", error);
     return null;
   }
 };
+
+async function insertProductsToDatabase(client, products) {
+  try {
+    for (const product of products) {
+      const { id } = product;
+
+      const query = `
+        INSERT INTO products_odoo (odoo_id, product_data)
+        VALUES ($1, $2)
+        ON CONFLICT (odoo_id) DO UPDATE
+        SET product_data = $2;
+      `;
+      const values = [id, product]; // Store the entire product object in the JSONB column
+
+      await client.query(query, values);
+      console.log(`Inserted/updated product with Odoo ID: ${id}`);
+    }
+    console.log("Successfully inserted/updated all products.");
+  } catch (error) {
+    console.error("Error inserting/updating products:", error);
+    throw error;
+  }
+}
+
+async function fetchAllProductsInBatches(userId) {
+  try {
+    let allProducts = [];
+    let year = new Date().getFullYear();
+    let hasMoreProducts = true;
+
+    do {
+      const startDate = `${year}-01-01 00:00:00`;
+      const endDate = `${year}-12-31 23:59:59`;
+      let fetchedCount = 0;
+      let batchLength = 0; // To track the length of the last fetched batch
+
+      const batch = await getInventoryFromOdoo(userId, startDate, endDate);
+
+      if (!batch || batch.length === 0) {
+        hasMoreProducts = false; // No more products in this date range
+        batchLength = 0;
+        break;
+      }
+
+      allProducts = allProducts.concat(batch);
+      fetchedCount += batch.length;
+      batchLength = batch.length;
+
+      /* do {
+        
+  
+        console.log(`Fetched ${fetchedCount} products from ${year} so far.`);
+  
+        if (batchLength < 100) {
+          // Assuming a typical return size, adjust if needed
+          break;
+        }
+      } while (batchLength >= 100); // Continue fetching within the year if a full batch was returned */
+
+      const client = await connectToDatabase();
+      await insertProductsToDatabase(client, batch);
+      console.log(
+        `Finished fetching products from ${year}. Total for this year: ${fetchedCount}`
+      );
+      year--; // Move to the previous year
+      if (year < 2000 && allProducts.length > 0) {
+        // Example stopping condition based on year and if any products were found
+        hasMoreProducts = false;
+      } else if (year < 2000 && allProducts.length === 0) {
+        hasMoreProducts = false;
+      }
+    } while (hasMoreProducts);
+
+    const reponse = `Successfully fetched a total of ${allProducts.length} products.`;
+
+    console.log(reponse);
+    return reponse;
+  } catch (error) {
+    console.error("Error fetching all products:", error);
+    res.status(500).json({ error: "Failed to fetch all products." });
+  } finally {
+    if (client) {
+      await client.end();
+      console.log("Disconnected from PostgreSQL database");
+    }
+  }
+}
 
 export const getInventory = async (req, res) => {
   try {
@@ -106,14 +200,18 @@ export const getInventory = async (req, res) => {
       res.status(401).json({ error: "Authentication Failed" });
       return;
     }
-    const inventory = await getInventoryFromOdoo(userId);
-    if (!inventory) {
-      res.status(500).json({ error: "Inventory could not be retrieved" });
-      return;
+
+    const allProducts = await fetchAllProductsInBatches(userId);
+
+    if (allProducts && allProducts.length > 0) {
+      res.json({
+        message: `Successfully fetched and stored ${allProducts.length} products.`,
+      });
+    } else {
+      res.status(500).json({ error: "Failed to retrieve or store products." });
     }
-    res.json(inventory);
   } catch (error) {
-    console.error("Error fetching inventory:", error);
-    res.status(500).json({ error: "Failed to fetch inventory" });
+    console.error("Error in getInventory route:", error);
+    res.status(500).json({ error: "Failed to fetch and store products." });
   }
 };
