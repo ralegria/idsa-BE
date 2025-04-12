@@ -153,17 +153,6 @@ async function fetchAllProductsInBatches(userId) {
       fetchedCount += batch.length;
       batchLength = batch.length;
 
-      /* do {
-        
-  
-        console.log(`Fetched ${fetchedCount} products from ${year} so far.`);
-  
-        if (batchLength < 100) {
-          // Assuming a typical return size, adjust if needed
-          break;
-        }
-      } while (batchLength >= 100); // Continue fetching within the year if a full batch was returned */
-
       const client = await connectToDatabase();
       await insertProductsToDatabase(client, batch);
       console.log(
@@ -184,7 +173,9 @@ async function fetchAllProductsInBatches(userId) {
     return reponse;
   } catch (error) {
     console.error("Error fetching all products:", error);
-    res.status(500).json({ error: "Failed to fetch all products." });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch all products.", details: error });
   } finally {
     if (client) {
       await client.end();
@@ -208,10 +199,17 @@ export const getInventory = async (req, res) => {
         message: `Successfully fetched and stored ${allProducts.length} products.`,
       });
     } else {
-      res.status(500).json({ error: "Failed to retrieve or store products." });
+      res
+        .status(500)
+        .json({
+          error: "Failed to retrieve or store products.",
+          details: error,
+        });
     }
   } catch (error) {
     console.error("Error in getInventory route:", error);
-    res.status(500).json({ error: "Failed to fetch and store products." });
+    res
+      .status(500)
+      .json({ error: "Failed to fetch and store products.", details: error });
   }
 };
