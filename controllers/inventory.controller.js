@@ -109,24 +109,50 @@ const getInventoryFromOdoo = async (userId, startDate, endDate) => {
 async function insertProductsToDatabase(client, products) {
   try {
     for (const product of products) {
-      const { id } = product;
+      // Create a new object without the "image_" properties
+      const productWithoutImages = {};
+      for (const key in product) {
+        if (!key.startsWith("image_")) {
+          productWithoutImages[key] = product[key];
+        }
+      }
+
+      const { id, ...restOfProductData } = productWithoutImages; // Extract id and the rest
+
+      const columns = Object.keys(restOfProductData)
+        .map((key) => camelToSnakeCase(key))
+        .join(", ");
+      const placeholders = Object.keys(restOfProductData)
+        .map((_, index) => `$${index + 2}`) // Start placeholders from $2 as id is $1
+        .join(", ");
+      const values = [id, ...Object.values(restOfProductData)];
+
+      const setClauses = Object.keys(restOfProductData)
+        .map(
+          (key, index) =>
+            `${camelToSnakeCase(key)} = EXCLUDED.${camelToSnakeCase(key)}`
+        )
+        .join(", ");
 
       const query = `
-        INSERT INTO products_odoo (odoo_id, product_data)
-        VALUES ($1, $2)
-        ON CONFLICT (odoo_id) DO UPDATE
-        SET product_data = $2;
+        INSERT INTO products (id, ${columns})
+        VALUES ($1, ${placeholders})
+        ON CONFLICT (id) DO UPDATE
+        SET ${setClauses};
       `;
-      const values = [id, product]; // Store the entire product object in the JSONB column
 
       await client.query(query, values);
-      console.log(`Inserted/updated product with Odoo ID: ${id}`);
+      console.log(`Inserted/updated product with ID: ${id}`);
     }
     console.log("Successfully inserted/updated all products.");
   } catch (error) {
     console.error("Error inserting/updating products:", error);
     throw error;
   }
+}
+
+function camelToSnakeCase(str) {
+  return str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
 async function fetchAllProductsInBatches(userId) {
@@ -199,12 +225,10 @@ export const getInventory = async (req, res) => {
         message: `Successfully fetched and stored ${allProducts.length} products.`,
       });
     } else {
-      res
-        .status(500)
-        .json({
-          error: "Failed to retrieve or store products.",
-          details: error,
-        });
+      res.status(500).json({
+        error: "Failed to retrieve or store products.",
+        details: error,
+      });
     }
   } catch (error) {
     console.error("Error in getInventory route:", error);
