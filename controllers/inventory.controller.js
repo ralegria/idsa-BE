@@ -117,32 +117,18 @@ async function insertProductsToDatabase(client, products) {
         }
       }
 
-      const { id, ...restOfProductData } = productWithoutImages; // Extract id and the rest
-
-      const columns = Object.keys(restOfProductData)
-        .map((key) => camelToSnakeCase(key))
-        .join(", ");
-      const placeholders = Object.keys(restOfProductData)
-        .map((_, index) => `$${index + 2}`) // Start placeholders from $2 as id is $1
-        .join(", ");
-      const values = [id, ...Object.values(restOfProductData)];
-
-      const setClauses = Object.keys(restOfProductData)
-        .map(
-          (key, index) =>
-            `${camelToSnakeCase(key)} = EXCLUDED.${camelToSnakeCase(key)}`
-        )
-        .join(", ");
+      const { id } = productWithoutImages; // Use the 'id' as 'odoo_id'
 
       const query = `
-        INSERT INTO products (id, ${columns})
-        VALUES ($1, ${placeholders})
-        ON CONFLICT (id) DO UPDATE
-        SET ${setClauses};
+        INSERT INTO products (odoo_id, product_data)
+        VALUES ($1, $2)
+        ON CONFLICT (odoo_id) DO UPDATE
+        SET product_data = $2;
       `;
+      const values = [id, productWithoutImages];
 
       await client.query(query, values);
-      console.log(`Inserted/updated product with ID: ${id}`);
+      console.log(`Inserted/updated product with Odoo ID: ${id}`);
     }
     console.log("Successfully inserted/updated all products.");
   } catch (error) {

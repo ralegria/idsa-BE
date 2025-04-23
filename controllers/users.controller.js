@@ -1,11 +1,25 @@
-import { User } from "../models/users.model.js";
 import bcrypt from "bcrypt";
+import { User } from "../models/users.model.js";
 import { createToken } from "./auth.controller.js";
 
 export const getUsers = async (_, res) => {
   try {
     const users = await User.findAll({ where: { isDeleted: false } });
     res.json(users);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getSingleUser = async (req, res) => {
+  try {
+    const user = await User.findOne({ where: { short_id: req.params.id } });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -24,20 +38,6 @@ export const verifyEmailExists = async (req, res) => {
     if (!user) {
       return res.status(200).json({ message: "Email account available." });
     }
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-export const getSingleUser = async (req, res) => {
-  try {
-    const user = await User.findOne({ where: { short_id: req.params.id } });
-
-    if (!user) {
-      return res.status(404).json({ message: "User not found" });
-    }
-
-    res.json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

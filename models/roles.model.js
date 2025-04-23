@@ -12,11 +12,11 @@ export const Roles = sequelize.define(
       autoIncrement: true,
       allowNull: false,
     },
-    title: {
+    name: {
       type: DataTypes.STRING,
       allowNull: false,
     },
-    permissions: {
+    actions: {
       type: DataTypes.ARRAY(DataTypes.STRING),
       allowNull: false,
     },
